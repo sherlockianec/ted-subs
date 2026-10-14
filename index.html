@@ -66,10 +66,18 @@
 
   const pHtml = await getText('/playlist?list=' + m[1]);
   const ids = [];
+  const add = v => { if (v && !ids.includes(v)) ids.push(v); };
   let mm;
-  const re = /"playlistVideoRenderer":\{"videoId":"([\w-]{11})"/g;
-  while ((mm = re.exec(pHtml))) if (!ids.includes(mm[1])) ids.push(mm[1]);
-  if (!ids.length) { log('No videos found. Reload the page and try again.'); return; }
+  const re1 = new RegExp('watch\\?v=([\\w-]{11})(?:\\\\u0026|&amp;|&)list=' + m[1], 'g');
+  while ((mm = re1.exec(pHtml))) add(mm[1]);
+  const re2 = /"playlistVideoRenderer":\{"videoId":"([\w-]{11})"/g;
+  while ((mm = re2.exec(pHtml))) add(mm[1]);
+  document.querySelectorAll('a[href*="/watch?v="]').forEach(a => {
+    const x = a.href.match(/[?&]v=([\w-]{11})/);
+    if (x && a.href.includes('list=' + m[1])) add(x[1]);
+  });
+  console.log('Subtitle tool: found ' + ids.length + ' videos');
+  if (!ids.length) { log('No videos found in this playlist page. Scroll down once, then run it again.'); return; }
 
   function jsonArray(html, key) {
     const i = html.indexOf('"' + key + '":[');
