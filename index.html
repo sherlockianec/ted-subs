@@ -5,181 +5,164 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Playlist Subtitles</title>
 <style>
-  :root { --bg:#f6f7f9; --card:#fff; --text:#1c1e21; --muted:#6b7280; --accent:#2563eb; --border:#e5e7eb; --ok:#15803d; --err:#b91c1c; }
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1c1e21; --muted:#6b7280; --accent:#2563eb; --border:#e5e7eb; }
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#0f1115; --card:#181b21; --text:#e6e8eb; --muted:#9aa3af; --accent:#60a5fa; --border:#2a2f38; --ok:#4ade80; --err:#f87171; }
+    :root { --bg:#0f1115; --card:#181b21; --text:#e6e8eb; --muted:#9aa3af; --accent:#60a5fa; --border:#2a2f38; }
   }
   * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.5 system-ui, sans-serif; }
-  main { max-width:760px; margin:0 auto; padding:24px 16px 64px; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.55 system-ui, sans-serif; }
+  main { max-width:720px; margin:0 auto; padding:24px 16px 64px; }
   h1 { font-size:1.5rem; margin:0 0 4px; }
+  h2 { font-size:1.05rem; margin:0 0 8px; }
   p.sub { color:var(--muted); margin:0 0 20px; }
   .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:16px; }
-  input[type=text] { width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); font-size:1rem; }
-  button { padding:10px 16px; border:0; border-radius:8px; background:var(--accent); color:#fff; font-size:1rem; cursor:pointer; margin-top:10px; margin-right:8px; }
-  button:disabled { opacity:.5; cursor:default; }
-  button.secondary { background:transparent; color:var(--accent); border:1px solid var(--accent); }
-  #bar { height:8px; background:var(--border); border-radius:4px; overflow:hidden; margin-top:12px; }
-  #fill { height:100%; width:0; background:var(--accent); transition:width .2s; }
-  ul { list-style:none; padding:0; margin:12px 0 0; max-height:340px; overflow:auto; }
-  li { padding:6px 0; border-bottom:1px solid var(--border); font-size:.95rem; }
-  .ok { color:var(--ok); } .err { color:var(--err); } .muted { color:var(--muted); }
-  small { color:var(--muted); }
+  ol { margin:8px 0 0; padding-left:20px; }
+  li { margin-bottom:6px; }
+  a.bm { display:inline-block; padding:10px 16px; border-radius:8px; background:var(--accent); color:#fff; text-decoration:none; cursor:grab; font-weight:600; }
+  button { padding:10px 16px; border:1px solid var(--accent); border-radius:8px; background:transparent; color:var(--accent); font-size:1rem; cursor:pointer; }
+  small, .muted { color:var(--muted); }
 </style>
 </head>
 <body>
 <main>
   <h1>Playlist Subtitles</h1>
-  <p class="sub">Paste a YouTube playlist link and get the English subtitles as a .txt file.</p>
+  <p class="sub">Downloads English subtitles of a whole YouTube playlist as one .txt file. It runs on the YouTube page itself, so nothing is uploaded anywhere.</p>
 
   <div class="card">
-    <input id="url" type="text" value="https://youtube.com/playlist?list=PLJicmE8fK0EiUroVhuEyeOYkAGAAB58Xx" aria-label="Playlist URL">
-    <button id="go">Extract subtitles</button>
-    <button id="dl" class="secondary" disabled>Download all as .txt</button>
-    <div id="bar"><div id="fill"></div></div>
-    <div id="status" class="muted" style="margin-top:8px"></div>
-    <ul id="list"></ul>
+    <h2>Option A: Bookmarklet (easiest)</h2>
+    <ol>
+      <li>Drag this button to your bookmarks bar: <a class="bm" id="bm" href="#">Get playlist subtitles</a></li>
+      <li>Open your playlist on YouTube.</li>
+      <li>Click the bookmark. A small box shows progress, then a .txt file downloads.</li>
+    </ol>
+    <p class="muted" style="margin-bottom:0">Bookmarks bar hidden? Press Ctrl+Shift+B (Cmd+Shift+B on Mac).</p>
   </div>
 
-  <small>Runs entirely in your browser. Requests go through public CORS proxies, which can be slow or occasionally blocked; if videos fail, press the button again to retry just the failed ones.</small>
+  <div class="card">
+    <h2>Option B: Console (if the bookmarklet is blocked)</h2>
+    <ol>
+      <li><button id="copy">Copy script</button></li>
+      <li>Open your playlist on YouTube and press F12, then open the <b>Console</b> tab.</li>
+      <li>Firefox/Chrome may ask you to type <code>allow pasting</code> first. Then paste the script and press Enter.</li>
+    </ol>
+  </div>
+
+  <small>The playlist page must be open in the same tab you run it in. Videos without an English transcript are skipped and listed in the output file.</small>
 </main>
 
-<script>
-const PROXIES = [
-  u => "https://corsproxy.io/?url=" + encodeURIComponent(u),
-  u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
-  u => "https://api.codetabs.com/v1/proxy?quest=" + encodeURIComponent(u),
-];
-const $ = id => document.getElementById(id);
-const results = new Map(); // videoId -> {title, text}
-let order = [];
-let playlistId = "";
+<script type="text/plain" id="src">
+(async () => {
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const m = location.href.match(/[?&]list=([\w-]+)/);
+  if (!m) { alert('Open the playlist page on YouTube first (the address must contain list=...).'); return; }
 
-async function fetchText(url) {
-  let lastErr;
-  for (const mk of PROXIES) {
-    try {
-      const ctl = new AbortController();
-      const t = setTimeout(() => ctl.abort(), 20000);
-      const r = await fetch(mk(url), { signal: ctl.signal });
-      clearTimeout(t);
-      if (!r.ok) throw new Error("HTTP " + r.status);
-      const txt = await r.text();
-      if (txt && txt.length > 50) return txt;
-      throw new Error("empty response");
-    } catch (e) { lastErr = e; }
-  }
-  throw lastErr || new Error("all proxies failed");
-}
+  const box = document.createElement('div');
+  box.style.cssText = 'position:fixed;top:12px;right:12px;z-index:999999;background:#111;color:#fff;padding:12px 16px;border-radius:10px;font:14px system-ui;max-width:360px;box-shadow:0 4px 20px rgba(0,0,0,.4)';
+  document.body.appendChild(box);
+  const log = t => { box.textContent = t; };
 
-function decodeEntities(s) {
-  const t = document.createElement("textarea");
-  t.innerHTML = s;
-  return t.value;
-}
+  const getText = async u => { const r = await fetch(u, { credentials: 'include' }); return r.text(); };
+  const unesc = s => JSON.parse('"' + s + '"');
 
-async function getPlaylistVideos(id) {
-  const html = await fetchText("https://www.youtube.com/playlist?list=" + id);
+  const pHtml = await getText('/playlist?list=' + m[1]);
   const ids = [];
+  let mm;
   const re = /"playlistVideoRenderer":\{"videoId":"([\w-]{11})"/g;
-  let m;
-  while ((m = re.exec(html))) if (!ids.includes(m[1])) ids.push(m[1]);
-  if (!ids.length) {
-    const re2 = /"videoId":"([\w-]{11})"/g;
-    while ((m = re2.exec(html))) if (!ids.includes(m[1])) ids.push(m[1]);
-  }
-  return ids;
-}
+  while ((mm = re.exec(pHtml))) if (!ids.includes(mm[1])) ids.push(mm[1]);
+  if (!ids.length) { log('No videos found. Reload the page and try again.'); return; }
 
-function extractJsonArray(html, key) {
-  const i = html.indexOf('"' + key + '":[');
-  if (i < 0) return null;
-  let start = html.indexOf("[", i), depth = 0, inStr = false, esc = false;
-  for (let p = start; p < html.length; p++) {
-    const c = html[p];
-    if (inStr) { if (esc) esc = false; else if (c === "\\") esc = true; else if (c === '"') inStr = false; }
-    else if (c === '"') inStr = true;
-    else if (c === "[") depth++;
-    else if (c === "]") { depth--; if (depth === 0) return JSON.parse(html.slice(start, p + 1)); }
-  }
-  return null;
-}
-
-async function getSubtitles(videoId) {
-  const html = await fetchText("https://www.youtube.com/watch?v=" + videoId);
-  let title = videoId;
-  const tm = html.match(/<title>(.*?)<\/title>/s);
-  if (tm) title = decodeEntities(tm[1]).replace(/ - YouTube$/, "").trim();
-
-  const tracks = extractJsonArray(html, "captionTracks");
-  if (!tracks || !tracks.length) throw new Error("no captions found");
-  const en = tracks.filter(t => (t.languageCode || "").startsWith("en"));
-  const pick = en.find(t => t.kind !== "asr") || en[0];
-  if (!pick) throw new Error("no English captions");
-
-  const url = pick.baseUrl.replace(/\\u0026/g, "&") + "&fmt=json3";
-  const body = await fetchText(url);
-  const data = JSON.parse(body);
-  const lines = [];
-  for (const ev of data.events || []) {
-    if (!ev.segs) continue;
-    const line = ev.segs.map(s => s.utf8).join("").replace(/\s+/g, " ").trim();
-    if (line) lines.push(line);
-  }
-  if (!lines.length) throw new Error("caption track was empty");
-  return { title, text: lines.join(" ") };
-}
-
-function render(msgs) {
-  $("list").innerHTML = order.map((id, i) => {
-    const r = results.get(id), n = String(i + 1).padStart(2, "0");
-    if (r && r.text) return `<li class="ok">${n}. ✓ ${esc(r.title)}</li>`;
-    if (r && r.error) return `<li class="err">${n}. ✗ ${id} — ${esc(r.error)}</li>`;
-    return `<li class="muted">${n}. … ${id}</li>`;
-  }).join("");
-}
-const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
-
-$("go").onclick = async () => {
-  const m = $("url").value.match(/[?&]list=([\w-]+)/);
-  if (!m) { $("status").textContent = "That doesn't look like a playlist link (needs ?list=...)."; return; }
-  $("go").disabled = true;
-  try {
-    if (m[1] !== playlistId || !order.length) {
-      playlistId = m[1]; results.clear();
-      $("status").textContent = "Loading playlist…";
-      order = await getPlaylistVideos(playlistId);
-      if (!order.length) throw new Error("no videos found in playlist");
+  function jsonArray(html, key) {
+    const i = html.indexOf('"' + key + '":[');
+    if (i < 0) return null;
+    const start = html.indexOf('[', i);
+    let depth = 0, inStr = false, esc = false;
+    for (let p = start; p < html.length; p++) {
+      const c = html[p];
+      if (inStr) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') inStr = false; }
+      else if (c === '"') inStr = true;
+      else if (c === '[') depth++;
+      else if (c === ']') { depth--; if (!depth) return JSON.parse(html.slice(start, p + 1)); }
     }
-    render();
-    let done = [...results.values()].filter(r => r.text).length;
-    for (const id of order) {
-      if (results.get(id)?.text) continue;
-      $("status").textContent = `Fetching ${done + 1} of ${order.length}…`;
-      try { results.set(id, await getSubtitles(id)); done++; }
-      catch (e) { results.set(id, { error: e.message }); }
-      $("fill").style.width = (100 * [...results.values()].length / order.length) + "%";
-      render();
-      await new Promise(r => setTimeout(r, 400));
-    }
-    const ok = [...results.values()].filter(r => r.text).length;
-    $("status").textContent = `Done: ${ok} of ${order.length} videos have subtitles.` + (ok < order.length ? " Press the button again to retry failed ones." : "");
-    $("dl").disabled = ok === 0;
-  } catch (e) {
-    $("status").textContent = "Error: " + e.message;
+    return null;
   }
-  $("go").disabled = false;
-};
 
-$("dl").onclick = () => {
-  const out = order.map((id, i) => results.get(id)?.text
-    ? `===== ${String(i + 1).padStart(2, "0")}. ${results.get(id).title} =====\n${results.get(id).text}\n`
-    : null).filter(Boolean).join("\n");
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([out], { type: "text/plain;charset=utf-8" }));
-  a.download = "playlist_subtitles.txt";
-  a.click();
-};
+  async function getSubs(id) {
+    const html = await getText('/watch?v=' + id);
+    const t = html.match(/<title>(.*?)<\/title>/s);
+    let title = t ? t[1].replace(/ - YouTube$/, '').trim() : id;
+    const ta = document.createElement('textarea'); ta.innerHTML = title; title = ta.value;
+    let text = '';
+
+    try {
+      const tracks = jsonArray(html, 'captionTracks') || [];
+      const en = tracks.filter(x => (x.languageCode || '').startsWith('en'));
+      const pick = en.find(x => x.kind !== 'asr') || en[0];
+      if (pick) {
+        const body = await getText(pick.baseUrl + '&fmt=json3');
+        if (body) {
+          const d = JSON.parse(body);
+          text = (d.events || []).filter(e => e.segs)
+            .map(e => e.segs.map(s => s.utf8).join('').replace(/\s+/g, ' ').trim())
+            .filter(Boolean).join(' ');
+        }
+      }
+    } catch (e) {}
+
+    if (!text) {
+      try {
+        const p = html.match(/"getTranscriptEndpoint":\{"params":"([^"]+)"/);
+        const key = html.match(/"INNERTUBE_API_KEY":"([^"]+)"/);
+        const ver = html.match(/"INNERTUBE_CONTEXT_CLIENT_VERSION":"([^"]+)"/);
+        if (p && key) {
+          const r = await fetch('/youtubei/v1/get_transcript?key=' + key[1], {
+            method: 'POST', credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ context: { client: { clientName: 'WEB', clientVersion: ver ? ver[1] : '2.20250101.00.00', hl: 'en' } }, params: unesc(p[1]) })
+          });
+          const j = await r.json();
+          const segs = j.actions[0].updateEngagementPanelAction.content.transcriptRenderer.content
+            .transcriptSearchPanelRenderer.body.transcriptSegmentListRenderer.initialSegments;
+          text = segs.map(s => (s.transcriptSegmentRenderer.snippet.runs || []).map(x => x.text).join('')
+            .replace(/\s+/g, ' ').trim()).filter(Boolean).join(' ');
+        }
+      } catch (e) {}
+    }
+    return { title, text };
+  }
+
+  let out = '', failed = [], ok = 0;
+  for (let i = 0; i < ids.length; i++) {
+    log('Video ' + (i + 1) + ' of ' + ids.length + '...');
+    try {
+      const r = await getSubs(ids[i]);
+      if (r.text) { out += '===== ' + String(i + 1).padStart(2, '0') + '. ' + r.title + ' =====\n' + r.text + '\n\n'; ok++; }
+      else failed.push((i + 1) + '. ' + r.title + ' (' + ids[i] + ')');
+    } catch (e) { failed.push((i + 1) + '. ' + ids[i] + ' (' + e.message + ')'); }
+    await sleep(500);
+  }
+  if (failed.length) out += '===== NO SUBTITLES RETRIEVED FOR =====\n' + failed.join('\n') + '\n';
+
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([out], { type: 'text/plain;charset=utf-8' }));
+  a.download = 'playlist_subtitles.txt';
+  document.body.appendChild(a); a.click(); a.remove();
+  log('Done: ' + ok + ' of ' + ids.length + ' videos. File downloaded.');
+  setTimeout(() => box.remove(), 15000);
+})();
 </script>
+
+<script>
+  const src = document.getElementById('src').textContent.trim();
+  document.getElementById('bm').setAttribute('href', 'javascript:' + encodeURIComponent(src + '\nvoid 0;'));
+  document.getElementById('bm').addEventListener('click', e => {
+    e.preventDefault();
+    alert('Drag this button to your bookmarks bar instead of clicking it.');
+  });
+  document.getElementById('copy').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(src); document.getElementById('copy').textContent = 'Copied!'; }
+    catch (e) { prompt('Copy this script:', src); }
+  });
+</script>
+</main>
 </body>
 </html>
